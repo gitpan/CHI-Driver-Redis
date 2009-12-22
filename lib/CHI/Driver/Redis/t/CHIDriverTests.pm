@@ -20,8 +20,8 @@ sub clear_redis : Test(setup) {
     my ($self) = @_;
 
     my $cache = $self->new_cache;
-
-    $cache->_redis->flushall;
+    $cache->_verify_redis_connection;
+    $cache->redis->flushall;
 }
 
 1;

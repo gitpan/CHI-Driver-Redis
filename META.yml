@@ -1,5 +1,5 @@
 ---
-abstract: 'CHI Driver for Redis'
+abstract: 'Redis driver for CHI'
 author:
   - 'Cory G Watson <gphat@cpan.org>'
 build_requires:
@@ -21,10 +21,11 @@ no_index:
     - t
 requires:
   CHI: 0
+  Check::ISA: 0
   Moose: 0
   Redis: 0
   Try::Tiny: 0
   URI: 0
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.01
+version: 0.02

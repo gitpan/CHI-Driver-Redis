@@ -1,17 +1,18 @@
 package CHI::Driver::Redis;
 use Moose;
 
+use Check::ISA;
 use Redis;
 use Try::Tiny;
 use URI::Escape qw(uri_escape uri_unescape);
 
-our $VERSION = '0.01';
-
 extends 'CHI::Driver';
 
-has '_redis' => (
+our $VERSION = '0.02';
+
+has 'redis' => (
     is => 'rw',
-    isa => 'Redis'
+    isa => 'Redis',
 );
 
 has '_params' => (
@@ -22,21 +23,26 @@ sub BUILD {
     my ($self, $params) = @_;
 
     $self->_params($params);
-    $self->_redis(
-        Redis->new(
-            server => $params->{server} || '127.0.0.1:6379',
-            debug => $params->{debug} || 0
-        )
+}
+
+sub _build_redis {
+    my ($self) = @_;
+
+    my $params = $self->_params;
+
+    return Redis->new(
+        server => $params->{server} || '127.0.0.1:6379',
+        debug => $params->{debug} || 0
     );
 }
 
 sub fetch {
     my ($self, $key) = @_;
 
-    $self->_verify_redis_connection;
+    return unless $self->_verify_redis_connection;
 
     my $eskey = uri_escape($key);
-    return $self->_redis->get($self->namespace."||$eskey");
+    return $self->redis->get($self->namespace."||$eskey");
 }
 
 sub XXfetch_multi_hashref {
@@ -44,13 +50,15 @@ sub XXfetch_multi_hashref {
 
     return unless scalar(@{ $keys });
 
+    return unless $self->_verify_redis_connection;
+
     my %kv;
     foreach my $k (@{ $keys }) {
         my $esk = uri_escape($k);
         $kv{$self->namespace."||$esk"} = undef;
     }
 
-    my @vals = $self->_redis->mget(keys %kv);
+    my @vals = $self->redis->mget(keys %kv);
 
     my $count = 0;
     my %resp;
@@ -65,7 +73,9 @@ sub XXfetch_multi_hashref {
 sub get_keys {
     my ($self) = @_;
 
-    my @keys = $self->_redis->smembers($self->namespace);
+    return unless $self->_verify_redis_connection;
+
+    my @keys = $self->redis->smembers($self->namespace);
 
     my @unesckeys = ();
 
@@ -80,7 +90,9 @@ sub get_keys {
 sub get_namespaces {
     my ($self) = @_;
 
-    return $self->_redis->smembers('chinamespaces');
+    return unless $self->_verify_redis_connection;
+
+    return $self->redis->smembers('chinamespaces');
 }
 
 sub remove {
@@ -88,52 +100,71 @@ sub remove {
 
     return unless defined($key);
 
-    $self->_verify_redis_connection;
+    return unless $self->_verify_redis_connection;
 
     my $ns = $self->namespace;
 
     my $skey = uri_escape($key);
 
-    $self->_redis->srem($ns, $skey);
-    $self->_redis->del("$ns||$skey");
+    $self->redis->srem($ns, $skey);
+    $self->redis->del("$ns||$skey");
 }
 
 sub store {
     my ($self, $key, $data, $expires_at, $options) = @_;
 
-    $self->_verify_redis_connection;
+    return unless $self->_verify_redis_connection;
 
     my $ns = $self->namespace;
 
     my $skey = uri_escape($key);
     my $realkey = "$ns||$skey";
 
-    $self->_redis->sadd('chinamespaces', $ns);
-    unless($self->_redis->sismember($ns, $skey)) {
-        $self->_redis->sadd($ns, $skey) ;
+    $self->redis->sadd('chinamespaces', $ns);
+    unless($self->redis->sismember($ns, $skey)) {
+        $self->redis->sadd($ns, $skey) ;
     }
-    $self->_redis->set($realkey => $data);
+    $self->redis->set($realkey => $data);
 
     if(defined($expires_at)) {
         my $secs = $expires_at - time;
-        $self->_redis->expire($realkey, $secs);
+        $self->redis->expire($realkey, $secs);
     }
 }
 
 sub _verify_redis_connection {
     my ($self) = @_;
 
+    my $success = 0;
     try {
-        $self->_redis->ping;
-    } catch {
+        # If we are already "connected" then try and ping redis.
+        if(defined($self->redis)) {
+            if($self->redis->ping) {
+                $success = 1;
+                return;
+            }
+            # Bitch if the ping fails
+            warn "Error pinging redis, attempting to reconnect.\n";
+        }
+
         my $params = $self->_params;
-        $self->_redis(
-            Redis->new(
-                server => $params->{server} || '127.0.0.1:6379',
-                debug => $params->{debug} || 0
-            )
+        my $redis = Redis->new(
+            server => $params->{server} || '127.0.0.1:6379',
+            debug => $params->{debug} || 0
         );
+        if(obj($redis, 'Redis')) {
+            # We apparently connected, success!
+            $self->redis($redis);
+            $success = 1;
+        } else {
+            die('Failed to connect to Redis');
+        }
+    } catch {
+        warn "Unable to connect to Redis: $_";
     };
+
+    # Return the success of failure of the verification
+    return $success;
 }
 
 __PACKAGE__->meta->make_immutable;
@@ -144,18 +175,35 @@ __END__
 
 =head1 NAME
 
-CHI::Driver::Redis - CHI Driver for Redis
+CHI::Driver::Redis - Redis driver for CHI
 
 =head1 SYNOPSIS
 
-    use CHI::Driver::Redis;
+    use CHI;
 
-    my $foo = CHI::Driver::Redis->new(driver => 'Redis');
-    ...
+    my $foo = CHI->new(
+        driver => 'Redis',
+        namespace => 'foo',
+        server => '127.0.0.1:6379',
+        debug => 0
+    );
 
 =head1 DESCRIPTION
 
-This cache driver uses Redis as a backend for storing data.
+A CHI driver that uses C<Redis> to store the data.  Care has been taken to
+not have this module fail in firey ways if the cache is unavailable.  It is my
+hope that if it is failing and the cache is not required for your work, you
+can ignore it's C<warn>ings.
+
+=head1 CONSTRUCTOR OPTIONS
+
+C<server> and C<debug> are passed to C<Redis>.
+
+=head1 ATTRIBUTES
+
+=head2 redis
+
+Contains the underlying C<Redis> object.
 
 =head1 AUTHOR
 
