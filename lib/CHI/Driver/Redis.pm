@@ -8,7 +8,7 @@ use URI::Escape qw(uri_escape uri_unescape);
 
 extends 'CHI::Driver';
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 has 'redis' => (
     is => 'rw',
@@ -194,6 +194,21 @@ A CHI driver that uses C<Redis> to store the data.  Care has been taken to
 not have this module fail in firey ways if the cache is unavailable.  It is my
 hope that if it is failing and the cache is not required for your work, you
 can ignore it's C<warn>ings.
+
+=head1 TECHNICAL DETAILS
+
+Redis does not have namespaces.  Therefore, we have to do some hoop-jumping.
+
+Namespaces are tracked in a set named C<chinamespaces>.  This is a list of all
+the namespaces the driver has seen.
+
+Keys in a namespace are stored in a set that shares the name of the namespace.
+The actual value is stored as "$namespace||key".
+
+So, to illustrate.  If you store a value C<foo: bar> in namespace C<baz>,
+Redis will contain something like the following:
+
+=over 4
 
 =head1 CONSTRUCTOR OPTIONS
 
