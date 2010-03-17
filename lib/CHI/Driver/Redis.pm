@@ -8,7 +8,7 @@ use URI::Escape qw(uri_escape uri_unescape);
 
 extends 'CHI::Driver';
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 has 'redis' => (
     is => 'rw',
@@ -137,16 +137,19 @@ sub _verify_redis_connection {
 
     my $success = 0;
     try {
-        # If we are already "connected" then try and ping redis.
         if(defined($self->redis)) {
             if($self->redis->ping) {
                 $success = 1;
                 return;
             }
             # Bitch if the ping fails
-            warn "Error pinging redis, attempting to reconnect.\n";
+            die "Ping failed.";
         }
+    } catch {
+        warn "Error pinging redis, attempting to reconnect.\n";
+    };
 
+    try {
         my $params = $self->_params;
         my $redis = Redis->new(
             server => $params->{server} || '127.0.0.1:6379',
