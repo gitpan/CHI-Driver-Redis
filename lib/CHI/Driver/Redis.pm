@@ -8,7 +8,7 @@ use URI::Escape qw(uri_escape uri_unescape);
 
 extends 'CHI::Driver';
 
-our $VERSION = '0.04';
+our $VERSION = '0.06';
 
 has 'redis' => (
     is => 'rw',
@@ -32,7 +32,9 @@ sub _build_redis {
 
     return Redis->new(
         server => $params->{server} || '127.0.0.1:6379',
-        debug => $params->{debug} || 0
+        debug => $params->{debug} || 0,
+        encoding => undef,
+        (defined $params->{password} ? ( password => $params->{password} ) : ()),
     );
 }
 
@@ -42,7 +44,9 @@ sub fetch {
     return unless $self->_verify_redis_connection;
 
     my $eskey = uri_escape($key);
-    return $self->redis->get($self->namespace."||$eskey");
+    my $realkey = $self->namespace."||$eskey";
+    my $val = $self->redis->get($realkey);
+    return $val;
 }
 
 sub XXfetch_multi_hashref {
@@ -111,7 +115,7 @@ sub remove {
 }
 
 sub store {
-    my ($self, $key, $data, $expires_at, $options) = @_;
+    my ($self, $key, $data, $expires_in) = @_;
 
     return unless $self->_verify_redis_connection;
 
@@ -126,9 +130,8 @@ sub store {
     }
     $self->redis->set($realkey => $data);
 
-    if(defined($expires_at)) {
-        my $secs = $expires_at - time;
-        $self->redis->expire($realkey, $secs);
+    if (defined($expires_in)) {
+        $self->redis->expire($realkey, $expires_in);
     }
 }
 
@@ -150,11 +153,7 @@ sub _verify_redis_connection {
     };
 
     try {
-        my $params = $self->_params;
-        my $redis = Redis->new(
-            server => $params->{server} || '127.0.0.1:6379',
-            debug => $params->{debug} || 0
-        );
+        my $redis = $self->_build_redis();
         if(obj($redis, 'Redis')) {
             # We apparently connected, success!
             $self->redis($redis);
@@ -194,11 +193,13 @@ CHI::Driver::Redis - Redis driver for CHI
 =head1 DESCRIPTION
 
 A CHI driver that uses C<Redis> to store the data.  Care has been taken to
-not have this module fail in firey ways if the cache is unavailable.  It is my
+not have this module fail in fiery ways if the cache is unavailable.  It is my
 hope that if it is failing and the cache is not required for your work, you
-can ignore it's C<warn>ings.
+can ignore it's warnings.
 
 =head1 TECHNICAL DETAILS
+
+=head2 Namespaces.
 
 Redis does not have namespaces.  Therefore, we have to do some hoop-jumping.
 
@@ -208,14 +209,17 @@ the namespaces the driver has seen.
 Keys in a namespace are stored in a set that shares the name of the namespace.
 The actual value is stored as "$namespace||key".
 
-So, to illustrate.  If you store a value C<foo: bar> in namespace C<baz>,
-Redis will contain something like the following:
+=head2 Encoding
 
-=over 4
+This CHI driver uses Redis.pm.  Redis.pm by default automatically
+encodes values to UTF-8.  This driver sets the Redis encoding option
+to undef to disable automatic encoding.
+
+=back
 
 =head1 CONSTRUCTOR OPTIONS
 
-C<server> and C<debug> are passed to C<Redis>.
+C<server>, C<debug>, and C<password> are passed to C<Redis>.
 
 =head1 ATTRIBUTES
 
@@ -226,6 +230,10 @@ Contains the underlying C<Redis> object.
 =head1 AUTHOR
 
 Cory G Watson, C<< <gphat at cpan.org> >>
+
+=head1 CONTRIBUTORS
+
+Ian Burrell, C<< <iburrell@cpan.org> >>
 
 =head1 COPYRIGHT & LICENSE
 
