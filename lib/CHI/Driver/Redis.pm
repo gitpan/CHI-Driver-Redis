@@ -8,7 +8,7 @@ use URI::Escape qw(uri_escape uri_unescape);
 
 extends 'CHI::Driver';
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 has 'redis' => (
     is => 'rw',
@@ -19,9 +19,13 @@ has '_params' => (
     is => 'rw'
 );
 
+has 'prefix'=> (
+    is => 'ro',
+    default => '',
+);
+
 sub BUILD {
     my ($self, $params) = @_;
-
     $self->_params($params);
 }
 
@@ -44,29 +48,32 @@ sub fetch {
     return unless $self->_verify_redis_connection;
 
     my $eskey = uri_escape($key);
-    my $realkey = $self->namespace."||$eskey";
+    my $realkey = $self->prefix . $self->namespace . '||' . $eskey;
     my $val = $self->redis->get($realkey);
     return $val;
 }
 
-sub XXfetch_multi_hashref {
+sub fetch_multi_hashref {
     my ($self, $keys) = @_;
 
     return unless scalar(@{ $keys });
 
     return unless $self->_verify_redis_connection;
 
-    my %kv;
-    foreach my $k (@{ $keys }) {
+    my $ns = $self->prefix . $self->namespace;
+
+    my @keys;
+    foreach my $k (@$keys) {
         my $esk = uri_escape($k);
-        $kv{$self->namespace."||$esk"} = undef;
+        my $key = $ns . '||' . $esk;
+        push @keys, $key;
     }
 
-    my @vals = $self->redis->mget(keys %kv);
+    my @vals = $self->redis->mget(@keys);
 
     my $count = 0;
     my %resp;
-    foreach my $k (@{ $keys }) {
+    foreach my $k (@$keys) {
         $resp{$k} = $vals[$count];
         $count++;
     }
@@ -79,7 +86,7 @@ sub get_keys {
 
     return unless $self->_verify_redis_connection;
 
-    my @keys = $self->redis->smembers($self->namespace);
+    my @keys = $self->redis->smembers($self->prefix . $self->namespace);
 
     my @unesckeys = ();
 
@@ -96,7 +103,7 @@ sub get_namespaces {
 
     return unless $self->_verify_redis_connection;
 
-    return $self->redis->smembers('chinamespaces');
+    return $self->redis->smembers($self->prefix . 'chinamespaces');
 }
 
 sub remove {
@@ -106,12 +113,12 @@ sub remove {
 
     return unless $self->_verify_redis_connection;
 
-    my $ns = $self->namespace;
+    my $ns = $self->prefix . $self->namespace;
 
     my $skey = uri_escape($key);
 
     $self->redis->srem($ns, $skey);
-    $self->redis->del("$ns||$skey");
+    $self->redis->del($ns . '||' . $skey);
 }
 
 sub store {
@@ -119,19 +126,31 @@ sub store {
 
     return unless $self->_verify_redis_connection;
 
-    my $ns = $self->namespace;
+    my $ns = $self->prefix . $self->namespace;
 
     my $skey = uri_escape($key);
-    my $realkey = "$ns||$skey";
+    my $realkey = $ns . '||' . $skey;
 
-    $self->redis->sadd('chinamespaces', $ns);
-    unless($self->redis->sismember($ns, $skey)) {
-        $self->redis->sadd($ns, $skey) ;
-    }
-    $self->redis->set($realkey => $data);
+    $self->redis->sadd($self->prefix . 'chinamespaces', $self->namespace);
+    $self->redis->sadd($ns, $skey);
+    $self->redis->set($realkey, $data);
 
     if (defined($expires_in)) {
         $self->redis->expire($realkey, $expires_in);
+    }
+}
+
+sub clear {
+    my ($self) = @_;
+
+    return unless $self->_verify_redis_connection;
+
+    my $ns = $self->prefix . $self->namespace;
+    my @keys = $self->redis->smembers($ns);
+
+    foreach my $k (@keys) {
+        $self->redis->srem($ns, $k);
+        $self->redis->del($ns . '||' . $k);
     }
 }
 
