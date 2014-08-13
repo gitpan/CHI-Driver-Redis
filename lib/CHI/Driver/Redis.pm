@@ -8,11 +8,10 @@ use URI::Escape qw(uri_escape uri_unescape);
 
 extends 'CHI::Driver';
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 has 'redis' => (
     is => 'rw',
-    isa => 'Redis',
 );
 
 has '_params' => (
@@ -34,7 +33,8 @@ sub _build_redis {
 
     my $params = $self->_params;
 
-    return Redis->new(
+    my $redis_class = $params->{redis_class} || 'Redis';
+    return $redis_class->new(
         server => $params->{server} || '127.0.0.1:6379',
         debug => $params->{debug} || 0,
         encoding => undef,
@@ -173,7 +173,7 @@ sub _verify_redis_connection {
 
     try {
         my $redis = $self->_build_redis();
-        if(obj($redis, 'Redis')) {
+        if (defined $redis) {
             # We apparently connected, success!
             $self->redis($redis);
             $success = 1;

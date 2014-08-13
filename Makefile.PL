@@ -10,6 +10,7 @@ perl_version '5.006';
 
 build_requires 'Test::Class';
 build_requires 'Test::More';
+build_requires 'Test::Mock::Redis';
 
 requires 'Check::ISA';
 requires 'CHI' => '0.36';

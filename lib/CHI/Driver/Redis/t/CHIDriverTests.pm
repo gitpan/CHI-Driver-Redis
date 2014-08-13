@@ -2,7 +2,10 @@ package CHI::Driver::Redis::t::CHIDriverTests;
 use strict;
 use warnings;
 use CHI::Test;
+
 use base qw(CHI::t::Driver);
+
+use Test::Mock::Redis;
 
 sub testing_driver_class { 'CHI::Driver::Redis' }
 
@@ -14,7 +17,8 @@ sub new_cache_options {
     return (
         $self->SUPER::new_cache_options(),
         driver_class => 'CHI::Driver::Redis',
-        server => $ENV{CHI_REDIS_SERVER} || '127.0.0.1:6379',
+        redis_class => (defined $ENV{CHI_REDIS_SERVER} ? 'Redis' : 'Test::Mock::Redis'),
+        server => $ENV{CHI_REDIS_SERVER} || undef,
         ($ENV{CHI_REDIS_PASSWORD} ? ( password => $ENV{CHI_REDIS_PASSWORD} ) : ()),
         prefix => 'test' . $$ . ':',
     );

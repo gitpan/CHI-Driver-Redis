@@ -1,5 +1,8 @@
 Revision history for CHI-Driver-Redis
 
+0.08 August 13, 2014
+  * Use Test::Mock::Redis for tests when CHI_REDIS_SERVER not set
+
 0.07 August 11, 2014
   * Add prefix option to prefix all keys
 
